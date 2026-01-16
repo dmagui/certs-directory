@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Certification Dashboard</title>
+    
+    <!-- CSS Dependencies -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_modern.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #334155; }
+        
+        /* Layout & Map */
+        #map { height: 100%; width: 100%; border-radius: 8px; z-index: 1; border: 1px solid #e2e8f0; }
+        
+        /* Table Styles */
+        .tabulator { border: none !important; background-color: transparent !important; font-size: 12px; }
+        .tabulator-header { border-bottom: 1px solid #cbd5e1 !important; background-color: #f1f5f9 !important; font-weight: 600; color: #475569; }
+        .tabulator-header .tabulator-col { background-color: #f1f5f9 !important; border: none !important; }
+        .tabulator-header .tabulator-col-content { padding: 8px 10px !important; }
+        .tabulator-row { background-color: white !important; border-bottom: 1px solid #f1f5f9 !important; min-height: 28px !important; }
+        .tabulator-row:hover { background-color: #f8fafc !important; }
+        .tabulator-cell { padding: 4px 10px !important; border: none !important; height: 28px !important; display: flex; align-items: center; }
+
+        /* Custom Multi-Select Dropdown */
+        .multiselect { position: relative; min-width: 160px; }
+        .multiselect-btn { background: white; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.4rem 0.75rem; width: 100%; text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; transition: all 0.2s; }
+        .multiselect-btn:hover { border-color: #94a3b8; }
+        .multiselect-content { display: none; position: absolute; background: white; border: 1px solid #cbd5e1; border-radius: 6px; width: 240px; max-height: 400px; overflow-y: auto; z-index: 1000; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); margin-top: 4px; left: 0; }
+        .multiselect-content.show { display: block; }
+        .multiselect-content label { display: flex; align-items: center; padding: 6px 12px; cursor: pointer; font-size: 0.8rem; color: #475569; }
+        .multiselect-content label:hover { background-color: #f1f5f9; }
+        .multiselect-content input { margin-right: 8px; accent-color: #4f46e5; }
+        
+        .multiselect-header { padding: 8px; position: sticky; top: 0; background: white; border-bottom: 1px solid #e2e8f0; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+        .multiselect-search { width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem; }
+        .multiselect-actions { display: flex; gap: 4px; }
+        .action-btn { font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; background: #f1f5f9; border: 1px solid #e2e8f0; cursor: pointer; color: #64748b; flex: 1; text-align: center; }
+        .action-btn:hover { background: #e2e8f0; color: #334155; }
+
+        /* Map Markers */
+        .marker-cluster-small { background-color: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); }
+        .marker-cluster-small div { background-color: #059669; color: white; border-radius: 50%; width: 30px; height: 30px; margin: 5px; text-align: center; line-height: 30px; font-size: 12px; font-weight: 600; }
+        
+        .marker-cluster-medium { background-color: rgba(249, 115, 22, 0.2); border: 1px solid rgba(249, 115, 22, 0.4); }
+        .marker-cluster-medium div { background-color: #c2410c; color: white; border-radius: 50%; width: 30px; height: 30px; margin: 5px; text-align: center; line-height: 30px; font-size: 12px; font-weight: 600; }
+        
+        .marker-cluster-large { background-color: rgba(79, 70, 229, 0.2); border: 1px solid rgba(79, 70, 229, 0.4); }
+        .marker-cluster-large div { background-color: #4338ca; color: white; border-radius: 50%; width: 30px; height: 30px; margin: 5px; text-align: center; line-height: 30px; font-size: 12px; font-weight: 600; }
+
+        /* Loading - CSS Fix: Default to none, only flex when 'show' class is present */
+        #progress-overlay {
+            display: none; /* Default hidden */
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.95); z-index: 9999;
+            flex-direction: column; justify-content: center; align-items: center;
+        }
+        #progress-overlay.show { display: flex; } /* Only show when explicitly requested */
+        
+        .progress-container { width: 300px; height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden; margin-top: 16px; }
+        .progress-bar { height: 100%; background: #4f46e5; width: 0%; transition: width 0.3s ease; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Loading Overlay -->
+    <div id="progress-overlay">
+        <h2 class="text-lg font-semibold text-slate-800">Processing Data</h2>
+        <p id="progress-text" class="text-xs text-slate-500 mt-1">Initializing...</p>
+        <div class="progress-container">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shrink-0">
+        <div>
+            <h1 class="text-lg font-bold text-slate-900 tracking-tight">Portfolio Directory</h1>
+            <p class="text-slate-500 text-xs">LEED, WELL & BREEAM Intelligence</p>
+        </div>
+        <div class="flex gap-3 items-center">
+            <div id="error-banner" class="hidden text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200 mr-2">
+                Running Locally: Use "Load CSV Files" button
+            </div>
+            <input type="file" id="fileInput" multiple accept=".csv" class="hidden">
+            <button onclick="document.getElementById('fileInput').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition shadow-sm flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                Load CSV Files
+            </button>
+        </div>
+    </header>
+
+    <!-- Filter Bar (Top) -->
+    <div class="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap gap-4 items-center shrink-0 shadow-sm z-20">
+        <span class="text-xs font-bold text-slate-400 uppercase mr-2">Filters:</span>
+
+        <!-- Region Filter -->
+        <div class="multiselect" id="country-multiselect">
+            <div class="multiselect-btn" onclick="toggleMultiselect('country-content')">
+                <span class="overflow-hidden text-ellipsis whitespace-nowrap font-medium text-slate-600">All Regions</span>
+                <svg class="w-3 h-3 text-slate-400 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+            <div id="country-content" class="multiselect-content">
+                <div class="multiselect-header">
+                    <input type="text" id="region-search" class="multiselect-search" placeholder="Search regions..." onkeyup="filterRegionList()">
+                    <div class="multiselect-actions">
+                        <button class="action-btn" onclick="toggleAllCheckboxes('country-list-container', true)">Select All</button>
+                        <button class="action-btn" onclick="toggleAllCheckboxes('country-list-container', false)">Deselect All</button>
+                    </div>
+                </div>
+                <div id="country-list-container" class="max-h-60 overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Standard Filter -->
+        <div class="multiselect">
+            <div class="multiselect-btn" onclick="toggleMultiselect('standard-content')">
+                <span class="font-medium text-slate-600">All Standards</span>
+                <svg class="w-3 h-3 text-slate-400 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+            <div id="standard-content" class="multiselect-content">
+                <label><input type="checkbox" value="LEED" checked onchange="applyFilters()"> LEED</label>
+                <label><input type="checkbox" value="WELL" checked onchange="applyFilters()"> WELL</label>
+                <label><input type="checkbox" value="BREEAM" checked onchange="applyFilters()"> BREEAM</label>
+            </div>
+        </div>
+
+        <!-- Owner Filter -->
+        <div class="multiselect" id="owner-multiselect">
+            <div class="multiselect-btn" onclick="toggleMultiselect('owner-content')">
+                <span class="overflow-hidden text-ellipsis whitespace-nowrap font-medium text-slate-600">All Owners</span>
+                <svg class="w-3 h-3 text-slate-400 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+            <div id="owner-content" class="multiselect-content">
+                <div class="multiselect-header">
+                    <input type="text" id="owner-search-input" class="multiselect-search" placeholder="Search owners..." onkeyup="filterOwnerList()">
+                    <div class="multiselect-actions">
+                        <button class="action-btn" onclick="toggleAllCheckboxes('owner-list-container', true)">Select All</button>
+                        <button class="action-btn" onclick="toggleAllCheckboxes('owner-list-container', false)">Deselect All</button>
+                    </div>
+                </div>
+                <div id="owner-list-container" class="max-h-60 overflow-y-auto">
+                    <div class="p-3 text-xs text-gray-400 text-center">Load data to view</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Date Range -->
+        <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+            <span class="text-[10px] font-bold text-slate-400 uppercase">Expiry:</span>
+            <input type="date" id="filter-date-start" class="bg-transparent text-xs text-slate-600 outline-none w-24">
+            <span class="text-slate-300 text-xs">-</span>
+            <input type="date" id="filter-date-end" class="bg-transparent text-xs text-slate-600 outline-none w-24">
+        </div>
+
+        <button id="clear-filters" class="ml-auto text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer">Reset All</button>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="grid grid-cols-5 gap-0 border-b border-slate-200 bg-slate-50 shrink-0">
+        <div class="p-3 border-r border-slate-200 text-center">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Assets</p>
+            <h3 id="stat-total" class="text-lg font-bold text-slate-800">0</h3>
+        </div>
+        <div class="p-3 border-r border-slate-200 text-center">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">LEED</p>
+            <h3 id="stat-leed" class="text-lg font-bold text-emerald-600">0</h3>
+        </div>
+        <div class="p-3 border-r border-slate-200 text-center">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">WELL</p>
+            <h3 id="stat-well" class="text-lg font-bold text-orange-600">0</h3>
+        </div>
+        <div class="p-3 border-r border-slate-200 text-center">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">BREEAM</p>
+            <h3 id="stat-breeam" class="text-lg font-bold text-blue-600">0</h3>
+        </div>
+        <div class="p-3 text-center">
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expiring < 1yr</p>
+            <h3 id="stat-expiry" class="text-lg font-bold text-rose-600">0</h3>
+        </div>
+    </div>
+
+    <!-- Main Content (Side by Side) -->
+    <div class="flex-1 overflow-hidden p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+            <!-- Map Column -->
+            <div class="bg-white p-1 rounded-lg shadow-sm border border-slate-200 h-full flex flex-col">
+                <div id="map" class="flex-1"></div>
+            </div>
+            
+            <!-- Table Column -->
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
+                <div class="p-3 border-b border-slate-100 flex justify-between items-center bg-white shrink-0">
+                    <h2 class="font-bold text-slate-700 text-xs uppercase tracking-wide">Project Details</h2>
+                    <span id="record-count" class="text-[10px] bg-slate-100 px-2 py-1 rounded text-slate-500 font-medium">0 records</span>
+                </div>
+                <div id="project-table" class="flex-1 w-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS Dependencies -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <script>
+        // --- 1. CLEANING DICTIONARIES ---
+        
+        // Full Country Name Mapper (ISO/Code -> Full Name)
+        const countryCodeMap = {
+            "AF": "Afghanistan", "AL": "Albania", "DZ": "Algeria", "AS": "American Samoa", "AD": "Andorra", 
+            "AO": "Angola", "AI": "Anguilla", "AQ": "Antarctica", "AG": "Antigua and Barbuda", "AR": "Argentina", 
+            "AM": "Armenia", "AW": "Aruba", "AU": "Australia", "AT": "Austria", "AZ": "Azerbaijan",
+            "BS": "Bahamas", "BH": "Bahrain", "BD": "Bangladesh", "BB": "Barbados", "BY": "Belarus", 
+            "BE": "Belgium", "BZ": "Belize", "BJ": "Benin", "BM": "Bermuda", "BT": "Bhutan", 
+            "BO": "Bolivia", "BA": "Bosnia and Herzegovina", "BW": "Botswana", "BV": "Bouvet Island", 
+            "BR": "Brazil", "IO": "British Indian Ocean Territory", "BN": "Brunei Darussalam", "BG": "Bulgaria", 
+            "BF": "Burkina Faso", "BI": "Burundi", "KH": "Cambodia", "CM": "Cameroon", "CA": "Canada", 
+            "CV": "Cape Verde", "KY": "Cayman Islands", "CF": "Central African Republic", "TD": "Chad", 
+            "CL": "Chile", "CN": "China", "CX": "Christmas Island", "CC": "Cocos (Keeling) Islands", 
+            "CO": "Colombia", "KM": "Comoros", "CG": "Congo", "CD": "Congo, Democratic Republic", 
+            "CK": "Cook Islands", "CR": "Costa Rica", "CI": "Cote D'Ivoire", "HR": "Croatia", "CU": "Cuba", 
+            "CY": "Cyprus", "CZ": "Czech Republic", "DK": "Denmark", "DJ": "Djibouti", "DM": "Dominica", 
+            "DO": "Dominican Republic", "EC": "Ecuador", "EG": "Egypt", "SV": "El Salvador", "GQ": "Equatorial Guinea", 
+            "ER": "Eritrea", "EE": "Estonia", "ET": "Ethiopia", "FK": "Falkland Islands", "FO": "Faroe Islands", 
+            "FJ": "Fiji", "FI": "Finland", "FR": "France", "GF": "French Guiana", "PF": "French Polynesia", 
+            "TF": "French Southern Territories", "GA": "Gabon", "GM": "Gambia", "GE": "Georgia", "DE": "Germany", 
+            "GH": "Ghana", "GI": "Gibraltar", "GR": "Greece", "GL": "Greenland", "GD": "Grenada", 
+            "GP": "Guadeloupe", "GU": "Guam", "GT": "Guatemala", "GG": "Guernsey", "GN": "Guinea", 
+            "GW": "Guinea-Bissau", "GY": "Guyana", "HT": "Haiti", "HM": "Heard Island & Mcdonald Islands", 
+            "VA": "Holy See (Vatican City State)", "HN": "Honduras", "HK": "Hong Kong", "HU": "Hungary", 
+            "IS": "Iceland", "IN": "India", "ID": "Indonesia", "IR": "Iran", "IQ": "Iraq", "IE": "Ireland", 
+            "IM": "Isle Of Man", "IL": "Israel", "IT": "Italy", "JM": "Jamaica", "JP": "Japan", "JE": "Jersey", 
+            "JO": "Jordan", "KZ": "Kazakhstan", "KE": "Kenya", "KI": "Kiribati", "KR": "South Korea", 
+            "KP": "North Korea", "KW": "Kuwait", "KG": "Kyrgyzstan", "LA": "Lao People's Democratic Republic", 
+            "LV": "Latvia", "LB": "Lebanon", "LS": "Lesotho", "LR": "Liberia", "LY": "Libyan Arab Jamahiriya", 
+            "LI": "Liechtenstein", "LT": "Lithuania", "LU": "Luxembourg", "MO": "Macao", "MK": "Macedonia", 
+            "MG": "Madagascar", "MW": "Malawi", "MY": "Malaysia", "MV": "Maldives", "ML": "Mali", "MT": "Malta", 
+            "MH": "Marshall Islands", "MQ": "Martinique", "MR": "Mauritania", "MU": "Mauritius", "YT": "Mayotte", 
+            "MX": "Mexico", "FM": "Micronesia", "MD": "Moldova", "MC": "Monaco", "MN": "Mongolia", 
+            "ME": "Montenegro", "MS": "Montserrat", "MA": "Morocco", "MZ": "Mozambique", "MM": "Myanmar", 
+            "NA": "Namibia", "NR": "Nauru", "NP": "Nepal", "NL": "Netherlands", "AN": "Netherlands Antilles", 
+            "NC": "New Caledonia", "NZ": "New Zealand", "NI": "Nicaragua", "NE": "Niger", "NG": "Nigeria", 
+            "NU": "Niue", "NF": "Norfolk Island", "MP": "Northern Mariana Islands", "NO": "Norway", "OM": "Oman", 
+            "PK": "Pakistan", "PW": "Palau", "PS": "Palestinian Territory", "PA": "Panama", "PG": "Papua New Guinea", 
+            "PY": "Paraguay", "PE": "Peru", "PH": "Philippines", "PN": "Pitcairn", "PL": "Poland", "PT": "Portugal", 
+            "PR": "Puerto Rico", "QA": "Qatar", "RE": "Reunion", "RO": "Romania", "RU": "Russian Federation", 
+            "RW": "Rwanda", "BL": "Saint Barthelemy", "SH": "Saint Helena", "KN": "Saint Kitts and Nevis", 
+            "LC": "Saint Lucia", "MF": "Saint Martin", "PM": "Saint Pierre and Miquelon", 
+            "VC": "Saint Vincent and Grenadines", "WS": "Samoa", "SM": "San Marino", "ST": "Sao Tome and Principe", 
+            "SA": "Saudi Arabia", "SN": "Senegal", "RS": "Serbia", "SC": "Seychelles", "SL": "Sierra Leone", 
+            "SG": "Singapore", "SK": "Slovakia", "SI": "Slovenia", "SB": "Solomon Islands", "SO": "Somalia", 
+            "ZA": "South Africa", "GS": "South Georgia and Sandwich Isl.", "ES": "Spain", "LK": "Sri Lanka", 
+            "SD": "Sudan", "SR": "Suriname", "SJ": "Svalbard and Jan Mayen", "SZ": "Swaziland", "SE": "Sweden", 
+            "CH": "Switzerland", "SY": "Syrian Arab Republic", "TW": "Taiwan", "TJ": "Tajikistan", "TZ": "Tanzania", 
+            "TH": "Thailand", "TL": "Timor-Leste", "TG": "Togo", "TK": "Tokelau", "TO": "Tonga", 
+            "TT": "Trinidad and Tobago", "TN": "Tunisia", "TR": "Turkey", "TM": "Turkmenistan", 
+            "TC": "Turks and Caicos Islands", "TV": "Tuvalu", "UG": "Uganda", "UA": "Ukraine", 
+            "AE": "United Arab Emirates", "GB": "United Kingdom", "UK": "United Kingdom", "US": "United States", 
+            "USA": "United States", "UM": "United States Outlying Islands", "UY": "Uruguay", "UZ": "Uzbekistan", 
+            "VU": "Vanuatu", "VE": "Venezuela", "VN": "Vietnam", "VG": "Virgin Islands, British", 
+            "VI": "Virgin Islands, U.S.", "WF": "Wallis and Futuna", "EH": "Western Sahara", "YE": "Yemen", 
+            "ZM": "Zambia", "ZW": "Zimbabwe", "ESP": "Spain"
+        };
+
+        // State/Province Code Mapper
+        const stateCodeMap = {
+            // US States
+            "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+            "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+            "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+            "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+            "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+            "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
+            "NM": "New Mexico", "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+            "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+            "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+            "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+            "DC": "District of Columbia", "PR": "Puerto Rico", "VI": "Virgin Islands",
+            // Canadian Provinces (Common ones)
+            "ON": "Ontario", "BC": "British Columbia", "QC": "Quebec", "AB": "Alberta", 
+            "NS": "Nova Scotia", "MB": "Manitoba", "SK": "Saskatchewan"
+        };
+
+        // --- 2. GLOBAL GEO DICTIONARY ---
+        // Coordinates for countries and states
+        const geoData = {
+            "United States": { lat: 39.8283, lng: -98.5795 },
+            "Canada": { lat: 56.1304, lng: -106.3468 },
+            "Mexico": { lat: 23.6345, lng: -102.5528 },
+            "United Kingdom": { lat: 55.3781, lng: -3.4360 },
+            "Ireland": { lat: 53.1424, lng: -7.6921 },
+            "France": { lat: 46.2276, lng: 2.2137 },
+            "Germany": { lat: 51.1657, lng: 10.4515 },
+            "Netherlands": { lat: 52.1326, lng: 5.2913 },
+            "Spain": { lat: 40.4637, lng: -3.7492 },
+            "Italy": { lat: 41.8719, lng: 12.5674 },
+            "Sweden": { lat: 60.1282, lng: 18.6435 },
+            "Norway": { lat: 60.4720, lng: 8.4689 },
+            "Denmark": { lat: 56.2639, lng: 9.5018 },
+            "Finland": { lat: 61.9241, lng: 25.7482 },
+            "Poland": { lat: 51.9194, lng: 19.1451 },
+            "Belgium": { lat: 50.5039, lng: 4.4699 },
+            "Switzerland": { lat: 46.8182, lng: 8.2275 },
+            "Austria": { lat: 47.5162, lng: 14.5501 },
+            "Greece": { lat: 39.0742, lng: 21.8243 },
+            "Portugal": { lat: 39.3999, lng: -8.2245 },
+            "China": { lat: 35.8617, lng: 104.1954 },
+            "Japan": { lat: 36.2048, lng: 138.2529 },
+            "India": { lat: 20.5937, lng: 78.9629 },
+            "Australia": { lat: -25.2744, lng: 133.7751 },
+            "New Zealand": { lat: -40.9006, lng: 174.8860 },
+            "Singapore": { lat: 1.3521, lng: 103.8198 },
+            "Hong Kong": { lat: 22.3193, lng: 114.1694 },
+            "South Korea": { lat: 35.9078, lng: 127.7669 },
+            "Taiwan": { lat: 23.6978, lng: 120.9605 },
+            "Thailand": { lat: 15.8700, lng: 100.9925 },
+            "Vietnam": { lat: 14.0583, lng: 108.2772 },
+            "Philippines": { lat: 12.8797, lng: 121.7740 },
+            "Malaysia": { lat: 4.2105, lng: 101.9758 },
+            "Indonesia": { lat: -0.7893, lng: 113.9213 },
+            "United Arab Emirates": { lat: 23.4241, lng: 53.8478 },
+            "Saudi Arabia": { lat: 23.8859, lng: 45.0792 },
+            "South Africa": { lat: -30.5595, lng: 22.9375 },
+            "Turkey": { lat: 38.9637, lng: 35.2433 },
+            "Israel": { lat: 31.0461, lng: 34.8516 },
+            "Brazil": { lat: -14.2350, lng: -51.9253 },
+            "Argentina": { lat: -38.4161, lng: -63.6167 },
+            "Chile": { lat: -35.6751, lng: -71.5430 },
+            "Colombia": { lat: 4.5709, lng: -74.2973 },
+            "Armenia": { lat: 40.0691, lng: 45.0382 },
+            "Angola": { lat: -11.2027, lng: 17.8739 },
+            "Netherlands Antilles": { lat: 12.2260, lng: -69.0601 },
+            "Czech Republic": { lat: 49.8175, lng: 15.4730 },
+            "Luxembourg": { lat: 49.8153, lng: 6.1296 },
+            "Romania": { lat: 45.9432, lng: 24.9668 },
+            
+            // US State Fallbacks for Mapping
+            "California": { lat: 36.7783, lng: -119.4179 },
+            "New York": { lat: 40.7128, lng: -74.0060 },
+            "Texas": { lat: 31.9686, lng: -99.9018 },
+            "Florida": { lat: 27.6648, lng: -81.5158 },
+            "Illinois": { lat: 40.6331, lng: -89.3985 },
+            "Pennsylvania": { lat: 41.2033, lng: -77.1945 },
+            "Ohio": { lat: 40.4173, lng: -82.9071 },
+            "Georgia": { lat: 32.1656, lng: -82.9001 },
+            "North Carolina": { lat: 35.7596, lng: -79.0193 },
+            "Michigan": { lat: 44.3148, lng: -85.6024 }
+        };
+
+        // --- 3. Global State ---
+        let allData = [];
+        let allOwners = [];
+        let allRegions = [];
+        let map, markers, table;
+        const TARGET_FILES = ['LEED_Projects_With_Expiry.csv', 'WELL_Projects_With_Expiry.csv', 'breeam_detailed_export.csv'];
+
+        // --- 4. Initialization ---
+        function initMap() {
+            map = L.map('map', { scrollWheelZoom: false }).setView([20, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CartoDB',
+                maxZoom: 19
+            }).addTo(map);
+            
+            markers = L.markerClusterGroup({
+                maxClusterRadius: 40,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                zoomToBoundsOnClick: true,
+                animate: true
+            });
+            map.addLayer(markers);
+        }
+
+        function initTable() {
+            table = new Tabulator("#project-table", {
+                data: [],
+                layout: "fitColumns",
+                height: "100%", 
+                placeholder: "No data loaded yet.",
+                columns: [
+                    {title: "Project Name", field: "name", widthGrow: 2, headerFilter: "input"},
+                    {title: "Standard", field: "standard", width: 80, formatter: (cell) => {
+                        const val = cell.getValue();
+                        let color = 'text-slate-500';
+                        if (val === 'LEED') color = 'text-emerald-600';
+                        else if (val === 'WELL') color = 'text-orange-600';
+                        else if (val === 'BREEAM') color = 'text-blue-600';
+                        
+                        return `<span class="font-bold ${color}">${val}</span>`;
+                    }},
+                    {title: "Region", field: "country", width: 140},
+                    {title: "Owner", field: "owner", widthGrow: 1.5},
+                    {title: "Expiry", field: "expiry", sorter: "date", width: 90, formatter: (cell) => {
+                        const d = cell.getValue();
+                        if (d === 'N/A') return `<span class="text-slate-300">-</span>`;
+                        const dateObj = new Date(d);
+                        const isSoon = dateObj < new Date(new Date().setFullYear(new Date().getFullYear() + 1));
+                        return `<span class="${isSoon ? 'text-rose-600 font-bold' : 'text-slate-600'}">${d}</span>`;
+                    }},
+                    {title: "Notes", field: "notes", widthGrow: 2, formatter: (cell) => {
+                        return `<span class="text-xs text-slate-500 truncate" title="${cell.getValue()}">${cell.getValue()}</span>`;
+                    }},
+                ],
+            });
+
+            table.on("dataFiltered", function(filters, rows){
+                const filteredData = rows.map(row => row.getData());
+                updateMapMarkers(filteredData);
+                updateStats(filteredData);
+            });
+        }
+
+        // --- 5. Helper Functions for Data Cleaning ---
+
+        function toTitleCase(str) {
+            if (!str) return "";
+            return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        }
+        
+        // Helper to parse "13 Nov 2028" format
+        function parseBreeamDate(dateStr) {
+            if (!dateStr) return "N/A";
+            // Check if it looks like a status "Final", "Interim" etc.
+            if (dateStr.length < 5 || !/\d/.test(dateStr)) return "N/A";
+            
+            const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return "N/A";
+            
+            return date.toISOString().split('T')[0]; // Return YYYY-MM-DD
+        }
+
+        function normalizeLocation(countryRaw, stateRaw) {
+            // 1. Clean Inputs
+            let c = countryRaw ? countryRaw.trim() : "Unknown";
+            let s = stateRaw ? stateRaw.trim() : "";
+
+            // 2. Resolve Country Name (Handle Codes & Casing)
+            if (countryCodeMap[c.toUpperCase()]) {
+                c = countryCodeMap[c.toUpperCase()];
+            } else {
+                c = toTitleCase(c);
+                if (countryCodeMap[c]) c = countryCodeMap[c];
+            }
+
+            // 3. Resolve State/Province Name
+            if (stateCodeMap[s.toUpperCase()]) {
+                s = stateCodeMap[s.toUpperCase()];
+            } else {
+                s = toTitleCase(s);
+            }
+
+            // 4. Formulate Display String
+            let displayRegion = c;
+            if ((c === 'United States' || c === 'Canada') && s) {
+                if (s.toLowerCase() !== c.toLowerCase()) {
+                    displayRegion = `${c} - ${s}`;
+                }
+            }
+
+            return { displayRegion, countryName: c, stateName: s };
+        }
+
+        // --- 6. Logic & Updates ---
+        
+        function updateStats(dataSet) {
+            const total = dataSet.length;
+            const leed = dataSet.filter(d => d.standard === 'LEED').length;
+            const well = dataSet.filter(d => d.standard === 'WELL').length;
+            const breeam = dataSet.filter(d => d.standard === 'BREEAM').length;
+            
+            const today = new Date();
+            const oneYearOut = new Date();
+            oneYearOut.setFullYear(today.getFullYear() + 1);
+
+            const expiring = dataSet.filter(d => {
+                if (d.expiry === 'N/A') return false;
+                const exp = new Date(d.expiry);
+                return exp > today && exp < oneYearOut;
+            }).length;
+
+            document.getElementById('stat-total').innerText = total.toLocaleString();
+            document.getElementById('stat-leed').innerText = leed.toLocaleString();
+            document.getElementById('stat-well').innerText = well.toLocaleString();
+            document.getElementById('stat-breeam').innerText = breeam.toLocaleString();
+            document.getElementById('stat-expiry').innerText = expiring.toLocaleString();
+            
+            document.getElementById('record-count').innerText = `${total.toLocaleString()} records`;
+        }
+
+        function updateMapMarkers(dataSet) {
+            markers.clearLayers();
+            const markersList = [];
+            
+            dataSet.forEach(p => {
+                if (p.lat && p.lng) {
+                    let iconColor = '#94a3b8'; // default slate
+                    if (p.standard === 'LEED') iconColor = '#059669'; // emerald
+                    else if (p.standard === 'WELL') iconColor = '#ea580c'; // orange
+                    else if (p.standard === 'BREEAM') iconColor = '#2563eb'; // blue
+                    
+                    const marker = L.circleMarker([p.lat, p.lng], {
+                        radius: 5,
+                        fillColor: iconColor,
+                        color: "#fff",
+                        weight: 1,
+                        fillOpacity: 0.9
+                    }).bindPopup(`
+                        <div class="p-1 font-sans">
+                            <h4 class="font-bold text-slate-800 text-xs mb-1">${p.name}</h4>
+                            <div class="text-[10px] text-slate-600 border-t pt-1 mt-1">
+                                <div><b class="text-slate-800">Std:</b> ${p.standard}</div>
+                                <div><b class="text-slate-800">Exp:</b> ${p.expiry}</div>
+                                <div><b class="text-slate-800">Loc:</b> ${p.country}</div>
+                            </div>
+                        </div>
+                    `);
+                    markersList.push(marker);
+                }
+            });
+            markers.addLayers(markersList);
+        }
+
+        // --- 7. Loading Data ---
+
+        function updateProgress(percent, message) {
+            const overlay = document.getElementById('progress-overlay');
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            
+            if (percent > 0) {
+                overlay.classList.add('show');
+            }
+            
+            bar.style.width = percent + '%';
+            if (message) text.innerText = message;
+            
+            if (percent >= 100) {
+                setTimeout(() => { 
+                    overlay.classList.remove('show'); 
+                    bar.style.width = '0%'; 
+                }, 500);
+            }
+        }
+
+        async function tryAutoLoad() {
+            if (window.location.protocol === 'file:') {
+                document.getElementById('progress-overlay').classList.remove('show');
+                document.getElementById('error-banner').classList.remove('hidden');
+                return;
+            }
+            updateProgress(10, "Attempting auto-load...");
+            try {
+                const loads = TARGET_FILES.map(filename => 
+                    fetch(filename).then(r => { if (!r.ok) throw new Error("404"); return r.text(); }).then(text => ({ text, filename }))
+                );
+                const results = await Promise.all(loads);
+                updateProgress(60, "Parsing data...");
+                setTimeout(() => processRawData(results), 100); 
+            } catch (error) {
+                document.getElementById('progress-overlay').classList.remove('show');
+                document.getElementById('error-banner').classList.remove('hidden');
+            }
+        }
+
+        async function handleManualUpload(e) {
+            document.getElementById('error-banner').classList.add('hidden');
+            const files = Array.from(e.target.files);
+            const loadedData = [];
+            updateProgress(5, "Reading files...");
+            for (let i = 0; i < files.length; i++) {
+                const text = await new Promise((res, rej) => {
+                    const r = new FileReader(); r.onload = e => res(e.target.result); r.onerror = rej; r.readAsText(files[i]);
+                });
+                loadedData.push({ text, filename: files[i].name });
+            }
+            updateProgress(75, "Processing...");
+            setTimeout(() => processRawData(loadedData), 50); 
+        }
+
+        function processRawData(filesData) {
+            allData = [];
+            
+            filesData.forEach(fileObj => {
+                const isLEED = fileObj.filename.toUpperCase().includes('LEED');
+                const isWELL = fileObj.filename.toUpperCase().includes('WELL');
+                
+                // Identify BREEAM by checking header columns if filename is ambiguous, 
+                // but usually filename or basic structure is enough. 
+                // We'll detect based on specific unique headers: "Building Name" + "Client/Developer"
+                
+                const parsed = Papa.parse(fileObj.text, { header: true, skipEmptyLines: true });
+                const headers = parsed.meta.fields || [];
+                const isBREEAM = headers.includes("Building Name") && headers.includes("Client/Developer");
+
+                let standard = "Unknown";
+                if (isLEED) standard = "LEED";
+                else if (isWELL) standard = "WELL";
+                else if (isBREEAM) standard = "BREEAM";
+                
+                const normalized = parsed.data.map(row => {
+                    let name = "Private Project";
+                    let countryRaw = "Unknown";
+                    let stateRaw = "";
+                    let owner = "Private";
+                    let expiry = "N/A";
+                    let notes = "";
+
+                    // MAPPING LOGIC
+                    if (isBREEAM) {
+                        name = row['Building Name'] || name;
+                        countryRaw = row['Country'] || countryRaw;
+                        // BREEAM doesn't usually have a separate state column, might be in Town/Postcode
+                        // We will rely on country mostly.
+                        owner = row['Client/Developer'] || owner;
+                        
+                        // Parse Expiry from "Stage/Valid Until"
+                        // Values can be "13 Nov 2028", "Final", "Interim"
+                        expiry = parseBreeamDate(row['Stage/Valid Until']);
+
+                        const rating = row['Rating'] || "";
+                        const score = row['Score (%)'] || "";
+                        const scheme = row['Scheme'] || "";
+                        notes = `${rating} ${score ? '('+score+')' : ''} | ${scheme}`;
+
+                    } else {
+                        // LEED & WELL Logic (Shared/Similar)
+                        name = row['Project Name'] || row['ProjectName'] || name;
+                        countryRaw = (row['Country/Region'] || row['Country'] || countryRaw);
+                        stateRaw = (row['State/Province'] || row['State'] || "");
+                        owner = row['Owner Organization'] || row['OwnerOrganization'] || owner;
+                        expiry = row['Likely Expiry Date'] || "N/A";
+                        
+                        const level = row['Cert_Level'] || row['CertLevel'] || "";
+                        const score = row['PointsAchieved'] || "";
+                        const scheme = row['Project type'] || row['LEEDSystemVersionDisplayName'] || "";
+                        notes = `${level} ${score ? '('+score+' pts)' : ''} | ${scheme}`.trim();
+                    }
+
+                    // --- NORMALIZATION & GEOCODING ---
+                    const { displayRegion, countryName, stateName } = normalizeLocation(countryRaw, stateRaw);
+
+                    let lat = null, lng = null;
+                    let coords = null;
+                    
+                    // 1. Try Specific State Lookup first
+                    if ((countryName === 'United States' || countryName === 'Canada') && geoData[stateName]) {
+                        coords = geoData[stateName];
+                    } 
+                    // 2. Try Country Lookup
+                    else if (geoData[countryName]) {
+                        coords = geoData[countryName];
+                    }
+
+                    if (coords) {
+                        lat = coords.lat;
+                        lng = coords.lng;
+                    }
+
+                    return { name, country: displayRegion, owner, expiry, notes, standard, lat, lng };
+                });
+
+                allData = [...allData, ...normalized];
+            });
+
+            updateProgress(100, "Rendering...");
+            initData();
+        }
+
+        function initData() {
+            // Set Table
+            table.setData(allData);
+            
+            // Set Filter Lists
+            allRegions = [...new Set(allData.map(d => d.country))].sort();
+            const countryList = document.getElementById('country-list-container');
+            countryList.innerHTML = allRegions.map(c => `
+                <label><input type="checkbox" value="${c}" checked onchange="applyFilters()"> <span class="ml-2 truncate">${c}</span></label>
+            `).join('');
+
+            allOwners = [...new Set(allData.map(d => d.owner || "Unknown"))].sort();
+            filterOwnerList();
+
+            // Initial Stats & Map
+            updateStats(allData);
+            updateMapMarkers(allData);
+        }
+
+        // --- 8. Filter Helpers ---
+
+        function toggleMultiselect(id) {
+            const el = document.getElementById(id);
+            const isOpen = el.classList.contains('show');
+            document.querySelectorAll('.multiselect-content').forEach(d => d.classList.remove('show'));
+            if (!isOpen) el.classList.add('show');
+        }
+
+        function toggleAllCheckboxes(containerId, state) {
+            const inputs = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            inputs.forEach(input => input.checked = state);
+            applyFilters();
+        }
+
+        function filterRegionList() {
+             const term = document.getElementById('region-search').value.toLowerCase();
+             const container = document.getElementById('country-list-container');
+             const matches = allRegions.filter(c => c.toLowerCase().includes(term));
+             container.innerHTML = matches.map(c => `
+                <label><input type="checkbox" value="${c}" class="region-checkbox" onchange="applyFilters()" checked> <span class="ml-2 truncate">${c}</span></label>
+            `).join('');
+        }
+
+        function filterOwnerList() {
+            const searchText = document.getElementById('owner-search-input').value.toLowerCase();
+            const container = document.getElementById('owner-list-container');
+            const matches = allOwners.filter(o => o.toLowerCase().includes(searchText));
+            const toRender = matches.slice(0, 100);
+            
+            container.innerHTML = toRender.map(o => `
+                <label><input type="checkbox" value="${o}" class="owner-checkbox" onchange="applyFilters()"> <span class="ml-2 truncate">${o}</span></label>
+            `).join('');
+            
+            if (matches.length > 100) container.innerHTML += `<div class="p-2 text-[10px] text-slate-400 italic">...and ${matches.length - 100} more</div>`;
+        }
+
+        function getCheckedValues(containerId, checkboxClass = null) {
+            const selector = checkboxClass ? `#${containerId} input.${checkboxClass}:checked` : `#${containerId} input:checked`;
+            return Array.from(document.querySelectorAll(selector)).map(input => input.value);
+        }
+
+        function applyFilters() {
+            const selectedRegions = getCheckedValues('country-list-container');
+            const selectedStandards = getCheckedValues('standard-content');
+            const selectedOwners = getCheckedValues('owner-list-container', 'owner-checkbox');
+            
+            const dateStart = document.getElementById('filter-date-start').value;
+            const dateEnd = document.getElementById('filter-date-end').value;
+
+            // Update UI Labels
+            const regionBtn = document.querySelector('#country-multiselect .multiselect-btn span');
+            if (selectedRegions.length === 0) regionBtn.innerText = "None Selected";
+            else if (selectedRegions.length === allRegions.length) regionBtn.innerText = "All Regions";
+            else if (selectedRegions.length > 2) regionBtn.innerText = `${selectedRegions.length} Selected`;
+            else regionBtn.innerText = selectedRegions.join(', ');
+
+            const ownerBtn = document.querySelector('#owner-multiselect .multiselect-btn span');
+            if (selectedOwners.length > 0) ownerBtn.innerText = `${selectedOwners.length} Selected`;
+            else ownerBtn.innerText = "All Owners";
+
+            // Apply Tabulator Filter
+            table.setFilter(data => {
+                if (selectedRegions.length > 0 && selectedRegions.length < allRegions.length && !selectedRegions.includes(data.country)) return false;
+                if (selectedStandards.length > 0 && !selectedStandards.includes(data.standard)) return false;
+                if (selectedOwners.length > 0 && !selectedOwners.includes(data.owner)) return false;
+                
+                if (dateStart || dateEnd) {
+                    if (data.expiry === 'N/A') return false; 
+                    const exp = new Date(data.expiry);
+                    if (dateStart && exp < new Date(dateStart)) return false;
+                    if (dateEnd && exp > new Date(dateEnd)) return false;
+                }
+                return true;
+            });
+        }
+
+        window.onclick = function(event) {
+            if (!event.target.closest('.multiselect')) {
+                document.querySelectorAll('.multiselect-content').forEach(d => d.classList.remove('show'));
+            }
+        }
+
+        document.getElementById('fileInput').addEventListener('change', handleManualUpload);
+        document.getElementById('filter-date-start').addEventListener('change', applyFilters);
+        document.getElementById('filter-date-end').addEventListener('change', applyFilters);
+        
+        document.getElementById('clear-filters').addEventListener('click', () => {
+            document.getElementById('filter-date-start').value = "";
+            document.getElementById('filter-date-end').value = "";
+            document.getElementById('owner-search-input').value = "";
+            document.getElementById('region-search').value = "";
+            
+            // Reset UI
+            document.querySelectorAll('#country-list-container input').forEach(i => i.checked = true);
+            document.querySelectorAll('#standard-content input').forEach(i => i.checked = true);
+            document.querySelectorAll('#owner-list-container input').forEach(i => i.checked = false); 
+            
+            filterOwnerList(); // Reset list
+            const countryList = document.getElementById('country-list-container');
+            countryList.innerHTML = allRegions.map(c => `
+                <label><input type="checkbox" value="${c}" checked onchange="applyFilters()"> <span class="ml-2 truncate">${c}</span></label>
+            `).join('');
+
+            applyFilters();
+        });
+
+        window.onload = () => { initMap(); initTable(); tryAutoLoad(); };
+    </script>
+</body>
+</html>
