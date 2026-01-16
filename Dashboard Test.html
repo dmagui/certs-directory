@@ -89,10 +89,17 @@
             <div id="error-banner" class="hidden text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200 mr-2">
                 <!-- Error text injected by JS -->
             </div>
-            <input type="file" id="fileInput" multiple accept=".csv" class="hidden">
-            <button onclick="document.getElementById('fileInput').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition shadow-sm flex items-center gap-2">
+            
+            <button onclick="downloadFilteredData()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition shadow-sm flex items-center gap-2">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                Load CSV Files
+                Download CSV
+            </button>
+
+            <!-- Hidden File Input for fallback -->
+            <input type="file" id="fileInput" multiple accept=".csv" class="hidden">
+            <button id="manual-upload-btn" onclick="document.getElementById('fileInput').click()" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition shadow-sm flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                Load Files
             </button>
         </div>
     </header>
@@ -401,7 +408,7 @@
                     }},
                     {title: "Region", field: "country", width: 140},
                     {title: "Owner", field: "owner", widthGrow: 1.5},
-                    {title: "Expiry", field: "expiry", sorter: "date", width: 90, formatter: (cell) => {
+                    {title: "Expiry/Poss. Renewal", field: "expiry", sorter: "date", width: 90, formatter: (cell) => {
                         const d = cell.getValue();
                         if (d === 'N/A') return `<span class="text-slate-300">-</span>`;
                         const dateObj = new Date(d);
@@ -610,6 +617,9 @@
                 document.getElementById('error-banner').innerText = errorMsg;
                 document.getElementById('error-banner').classList.remove('hidden');
                 
+                // Show manual button if failures occurred
+                document.getElementById('manual-upload-btn').classList.remove('hidden');
+
                 // If NO files loaded, we should probably stop or show specific instructions
                 if (successfulFiles.length === 0) {
                      document.getElementById('error-banner').innerHTML = "Auto-load failed. Please use the <b>Load CSV Files</b> button.";
@@ -830,6 +840,49 @@
                 }
                 return true;
             });
+        }
+
+        // --- 9. CSV Export ---
+        function downloadFilteredData() {
+            // Get data from current filtered table view
+            const data = table.getData("active");
+            
+            if (!data || data.length === 0) {
+                alert("No data to export");
+                return;
+            }
+
+            // Convert to CSV string (Simple implementation)
+            const headers = ["Project Name", "Standard", "Region", "Owner", "Expiry Date", "Notes"];
+            const csvRows = [];
+            
+            // Add Header Row
+            csvRows.push(headers.join(","));
+
+            // Add Data Rows
+            data.forEach(row => {
+                const values = [
+                    `"${(row.name || '').replace(/"/g, '""')}"`,
+                    `"${(row.standard || '').replace(/"/g, '""')}"`,
+                    `"${(row.country || '').replace(/"/g, '""')}"`,
+                    `"${(row.owner || '').replace(/"/g, '""')}"`,
+                    `"${(row.expiry || '').replace(/"/g, '""')}"`,
+                    `"${(row.notes || '').replace(/"/g, '""')}"`
+                ];
+                csvRows.push(values.join(","));
+            });
+
+            const csvString = csvRows.join("\n");
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "certification_export.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
         window.onclick = function(event) {
