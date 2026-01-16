@@ -440,6 +440,24 @@
             return date.toISOString().split('T')[0]; // Return YYYY-MM-DD
         }
 
+        // Helper to parse LEED date "DD/MM/YYYY HH:mm" or "YYYY-MM-DD"
+        function parseLeedDate(dateStr) {
+            if (!dateStr) return "N/A";
+            // If already ISO/YYYY-MM-DD (contains hyphens and starts with 20..)
+            if (dateStr.includes('-') && dateStr.startsWith('20')) {
+                return dateStr.split(' ')[0]; // Take just the date part
+            }
+            // If "DD/MM/YYYY HH:mm" (contains slashes)
+            if (dateStr.includes('/')) {
+                const parts = dateStr.split(' ')[0].split('/'); // Get date part, split by /
+                if (parts.length === 3) {
+                    // Assuming DD/MM/YYYY
+                    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+            }
+            return "N/A";
+        }
+
         function normalizeLocation(countryRaw, stateRaw) {
             // 1. Clean Inputs
             let c = countryRaw ? countryRaw.trim() : "Unknown";
@@ -674,7 +692,13 @@
                         countryRaw = (row['Country/Region'] || row['Country'] || countryRaw);
                         stateRaw = (row['State/Province'] || row['State'] || "");
                         owner = row['Owner Organization'] || row['OwnerOrganization'] || owner;
-                        expiry = row['Likely Expiry Date'] || "N/A";
+                        
+                        // Fix for LEED Date format in simplified CSV
+                        if (isLEED) {
+                            expiry = parseLeedDate(row['Likely Expiry Date']);
+                        } else {
+                            expiry = row['Likely Expiry Date'] || "N/A";
+                        }
                         
                         const level = row['Cert_Level'] || row['CertLevel'] || "";
                         const score = row['PointsAchieved'] || "";
