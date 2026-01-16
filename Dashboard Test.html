@@ -554,11 +554,9 @@
         }
 
         async function tryAutoLoad() {
-            if (window.location.protocol === 'file:') {
-                document.getElementById('progress-overlay').classList.remove('show');
-                document.getElementById('error-banner').classList.remove('hidden');
-                return;
-            }
+            // Remove the hard check for file: protocol since we might be on a local server
+            // or GitHub pages where we want this to run.
+            // If it fails, the catch block will handle it gracefully.
             updateProgress(10, "Attempting auto-load...");
             try {
                 const loads = TARGET_FILES.map(filename => 
@@ -568,8 +566,21 @@
                 updateProgress(60, "Parsing data...");
                 setTimeout(() => processRawData(results), 100); 
             } catch (error) {
+                console.warn("Auto-load failed (files possibly missing or 404):", error);
                 document.getElementById('progress-overlay').classList.remove('show');
-                document.getElementById('error-banner').classList.remove('hidden');
+                // Only show error banner if we are truly local (file:) or if the user needs to know
+                if (window.location.protocol === 'file:') {
+                    document.getElementById('error-banner').classList.remove('hidden');
+                } else {
+                    // On web (GitHub Pages), if it fails, it might mean the files aren't uploaded yet
+                    // showing a small toast or just relying on manual upload is safer.
+                    // For now, let's show the manual upload prompt but log the error.
+                    document.getElementById('error-banner').innerHTML = `
+                        <strong>Data files not found.</strong><br>
+                        Please upload CSVs manually or check repository paths.
+                    `;
+                    document.getElementById('error-banner').classList.remove('hidden');
+                }
             }
         }
 
