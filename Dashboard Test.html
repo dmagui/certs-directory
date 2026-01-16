@@ -87,7 +87,7 @@
         </div>
         <div class="flex gap-3 items-center">
             <div id="error-banner" class="hidden text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-md border border-amber-200 mr-2">
-                Running Locally: Use "Load CSV Files" button
+                <!-- Error text injected by JS -->
             </div>
             <input type="file" id="fileInput" multiple accept=".csv" class="hidden">
             <button onclick="document.getElementById('fileInput').click()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-xs font-semibold transition shadow-sm flex items-center gap-2">
@@ -554,33 +554,57 @@
         }
 
         async function tryAutoLoad() {
-            // Remove the hard check for file: protocol since we might be on a local server
-            // or GitHub pages where we want this to run.
-            // If it fails, the catch block will handle it gracefully.
             updateProgress(10, "Attempting auto-load...");
-            try {
-                const loads = TARGET_FILES.map(filename => 
-                    fetch(filename).then(r => { if (!r.ok) throw new Error("404"); return r.text(); }).then(text => ({ text, filename }))
-                );
-                const results = await Promise.all(loads);
-                updateProgress(60, "Parsing data...");
-                setTimeout(() => processRawData(results), 100); 
-            } catch (error) {
-                console.warn("Auto-load failed (files possibly missing or 404):", error);
-                document.getElementById('progress-overlay').classList.remove('show');
-                // Only show error banner if we are truly local (file:) or if the user needs to know
-                if (window.location.protocol === 'file:') {
-                    document.getElementById('error-banner').classList.remove('hidden');
-                } else {
-                    // On web (GitHub Pages), if it fails, it might mean the files aren't uploaded yet
-                    // showing a small toast or just relying on manual upload is safer.
-                    // For now, let's show the manual upload prompt but log the error.
-                    document.getElementById('error-banner').innerHTML = `
-                        <strong>Data files not found.</strong><br>
-                        Please upload CSVs manually or check repository paths.
-                    `;
-                    document.getElementById('error-banner').classList.remove('hidden');
+            
+            // Use Promise.allSettled instead of Promise.all
+            // This ensures we load WHATEVER files exist, even if one 404s
+            const fetchPromises = TARGET_FILES.map(filename => 
+                fetch(filename)
+                    .then(response => {
+                        if (!response.ok) throw new Error(`${filename} not found (${response.status})`);
+                        return response.text().then(text => ({ text, filename, status: 'fulfilled' }));
+                    })
+                    .catch(err => ({ status: 'rejected', reason: err.message, filename }))
+            );
+
+            const results = await Promise.allSettled(fetchPromises);
+            
+            // Filter out successful loads
+            // Note: Promise.allSettled returns objects with { status, value } (for resolved) or { status, reason } (for rejected)
+            // But our inner promise chain returns { status: 'fulfilled/rejected' } inside value too, so we need to be careful with unpacking.
+            // Actually, Promise.allSettled wraps them.
+            // If fetch resolves, we get { status: 'fulfilled', value: { text, filename, status: 'fulfilled' } }
+            // If fetch catches, we get { status: 'fulfilled', value: { status: 'rejected', reason, filename } } because we caught the error in .catch() above to return a valid object.
+            
+            // Let's simplify: the map returns Promises that resolve to a result object with a status property.
+            // So Promise.all is actually fine if we handle errors inside map.
+            // Let's stick to the manual map catch approach which is robust.
+            
+            const finalResults = await Promise.all(fetchPromises);
+            
+            const successfulFiles = finalResults.filter(r => r.status === 'fulfilled');
+            const failedFiles = finalResults.filter(r => r.status === 'rejected');
+
+            if (failedFiles.length > 0) {
+                console.warn("Some files failed to load:", failedFiles.map(f => f.reason));
+                // Show a non-blocking toast/banner
+                const errorMsg = `Loaded ${successfulFiles.length} files. Missing: ${failedFiles.map(f => f.filename).join(', ')}`;
+                document.getElementById('error-banner').innerText = errorMsg;
+                document.getElementById('error-banner').classList.remove('hidden');
+                
+                // If NO files loaded, we should probably stop or show specific instructions
+                if (successfulFiles.length === 0) {
+                     document.getElementById('error-banner').innerHTML = "Auto-load failed. Please use the <b>Load CSV Files</b> button.";
+                     updateProgress(100, "Done"); // Clear overlay
+                     return;
                 }
+            }
+
+            if (successfulFiles.length > 0) {
+                updateProgress(60, "Parsing data...");
+                setTimeout(() => processRawData(successfulFiles), 100); 
+            } else {
+                updateProgress(100, "Done");
             }
         }
 
